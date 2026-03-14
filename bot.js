@@ -30,42 +30,41 @@ async function getGooglePrice(product) {
 
   try {
 
-    const url = `https://www.google.com/search?q=${encodeURIComponent(product)}+price+per+kg+kolkata+india`;
+    const url = `https://www.google.com/search?q=${encodeURIComponent(product)}+price+per+kg+kolkata`;
 
     const { data } = await axios.get(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0"
-      }
+      headers: { "User-Agent": "Mozilla/5.0" }
     });
 
     const $ = cheerio.load(data);
 
-    let price = null;
+    let prices = [];
 
     $("span, div").each((i, el) => {
 
       const text = $(el).text();
 
-      // detect ₹ price
       const match = text.match(/₹\s?(\d{1,3})/);
 
       if (match) {
 
         const value = parseInt(match[1]);
 
-        // realistic vegetable price filter
-        if (value > 5 && value < 500) {
-
-          price = value;
-          return false;
-
+        if (value > 10 && value < 200) {
+          prices.push(value);
         }
 
       }
 
     });
 
-    return price;
+    if (prices.length === 0) return null;
+
+    // average price
+    const avg =
+      prices.reduce((a, b) => a + b, 0) / prices.length;
+
+    return Math.round(avg);
 
   } catch (err) {
 
