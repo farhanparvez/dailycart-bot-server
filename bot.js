@@ -9,7 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Firebase key
-const serviceAccount = require(process.env.FIREBASE_KEY);
+const serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
 
 
 
