@@ -30,7 +30,7 @@ async function getGooglePrice(product) {
 
   try {
 
-    const url = `https://www.google.com/search?q=${encodeURIComponent(product)}+price+india+kolkata+market+per+kg`;
+    const url = `https://www.google.com/search?q=${encodeURIComponent(product)}+price+per+kg+kolkata+india`;
 
     const { data } = await axios.get(url, {
       headers: {
@@ -42,14 +42,25 @@ async function getGooglePrice(product) {
 
     let price = null;
 
-    $("span").each((i, el) => {
+    $("span, div").each((i, el) => {
 
       const text = $(el).text();
-      const number = parseInt(text.replace(/[^0-9]/g, ""));
 
-      if (number && number > 5 && number < 500) {
-        price = number;
-        return false;
+      // detect ₹ price
+      const match = text.match(/₹\s?(\d{1,3})/);
+
+      if (match) {
+
+        const value = parseInt(match[1]);
+
+        // realistic vegetable price filter
+        if (value > 5 && value < 500) {
+
+          price = value;
+          return false;
+
+        }
+
       }
 
     });
@@ -64,7 +75,6 @@ async function getGooglePrice(product) {
   }
 
 }
-
 
 // ---------- PRICE FETCH ----------
 
