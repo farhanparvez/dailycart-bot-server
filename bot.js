@@ -24,13 +24,13 @@ const db = admin.firestore();
 
 
 
-// ---------- GOOGLE PRICE SCRAPER ----------
+// ---------- SMART GOOGLE PRICE SCRAPER ----------
 
 async function getGooglePrice(product) {
 
   try {
 
-    const url = `https://www.google.com/search?q=${encodeURIComponent(product)}+price+per+kg+kolkata`;
+    const url = `https://www.google.com/search?q=${encodeURIComponent(product)}+mandi+price+kolkata+per+kg`;
 
     const { data } = await axios.get(url, {
       headers: { "User-Agent": "Mozilla/5.0" }
@@ -40,7 +40,7 @@ async function getGooglePrice(product) {
 
     let prices = [];
 
-    $("span, div").each((i, el) => {
+    $("div, span").each((i, el) => {
 
       const text = $(el).text();
 
@@ -60,11 +60,13 @@ async function getGooglePrice(product) {
 
     if (prices.length === 0) return null;
 
-    // average price
-    const avg =
-      prices.reduce((a, b) => a + b, 0) / prices.length;
+    // sort
+    prices.sort((a,b)=>a-b);
 
-    return Math.round(avg);
+    // median price (best for market)
+    const mid = Math.floor(prices.length / 2);
+
+    return prices[mid];
 
   } catch (err) {
 
