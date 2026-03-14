@@ -28,52 +28,92 @@ const db = admin.firestore();
 
 async function getGooglePrice(product) {
 
-  try {
+try {
 
-    const url = `https://www.google.com/search?q=${encodeURIComponent(product)}+mandi+price+kolkata+per+kg`;
+const url = `https://www.google.com/search?q=${encodeURIComponent(product)}+mandi+price+kolkata+per+kg`;
 
-    const { data } = await axios.get(url, {
-      headers: { "User-Agent": "Mozilla/5.0" }
-    });
+const { data } = await axios.get(url, {
+headers: { "User-Agent": "Mozilla/5.0" }
+});
 
-    const $ = cheerio.load(data);
+const $ = cheerio.load(data);
 
-    let prices = [];
+let collectedText = "";
 
-    $("div, span").each((i, el) => {
+$("div, span").each((i, el) => {
 
-      const text = $(el).text();
+const text = $(el).text();
 
-      const match = text.match(/₹\s?(\d{1,3})/);
+if(text.includes("₹")){
+collectedText += text + "\n";
+}
 
-      if (match) {
+});
 
-        const value = parseInt(match[1]);
+// AI analyze
+const aiPrice = await analyzePriceWithAI(collectedText);
 
-        if (value > 10 && value < 200) {
-          prices.push(value);
-        }
+if(aiPrice){
+return aiPrice;
+}
 
-      }
+return null;
 
-    });
+} catch (err) {
 
-    if (prices.length === 0) return null;
+console.log("Google scrape error:", err.message);
+return null;
 
-    // sort
-    prices.sort((a,b)=>a-b);
+}
 
-    // median price (best for market)
-    const mid = Math.floor(prices.length / 2);
+}
+// ---------- AI PRICE ANALYZER ----------
 
-    return prices[mid];
+async function analyzePriceWithAI(text){
 
-  } catch (err) {
+try{
 
-    console.log("Google scrape error:", err.message);
-    return null;
+const response = await axios.post(
+"https://api.groq.com/openai/v1/chat/completions",
+{
+model:"llama-3.1-8b-instant",
 
-  }
+messages:[
+{
+role:"system",
+content:"You analyze vegetable market prices. Return only a number."
+},
+{
+role:"user",
+content:`Find the realistic vegetable price per kg from this data. Return only number between 10 and 200.
+
+DATA:
+${text}`
+}
+]
+
+},
+
+{
+headers:{
+"Authorization":`Bearer ${process.env.GROQ_API_KEY}`,
+"Content-Type":"application/json"
+}
+}
+
+)
+
+const result = response.data.choices[0].message.content
+
+return parseInt(result)
+
+}catch(err){
+
+console.log("AI error:",err.message)
+
+return null
+
+}
 
 }
 
