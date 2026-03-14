@@ -85,7 +85,7 @@ async function getPrice(product) {
     return googlePrice;
   }
 
-  return Math.floor(Math.random() * 80) + 20;
+  return Math.floor(Math.random() * 80) + 10;
 
 }
 
