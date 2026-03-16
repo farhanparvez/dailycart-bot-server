@@ -2,6 +2,7 @@ const express = require("express");
 const admin = require("firebase-admin");
 const axios = require("axios");
 const cheerio = require("cheerio");
+const puppeteer = require("puppeteer")
 
 const app = express();
 
@@ -43,48 +44,67 @@ return name
    GOOGLE SCRAPER
 ========================= */
 
+
 async function getGoogleData(product){
 
 try{
 
-const clean = cleanProductName(product)
+const clean = product
+.toLowerCase()
+.replace(/[^a-z ]/g,"")
+.trim()
 
-const url = `https://www.google.com/search?q=${encodeURIComponent(clean)}+price+kolkata+per+kg`
-
-const {data} = await axios.get(url,{
-headers:{
-"User-Agent":"Mozilla/5.0"
-}
+const browser = await puppeteer.launch({
+headless:true,
+args:["--no-sandbox","--disable-setuid-sandbox"]
 })
 
-const $ = cheerio.load(data)
+const page = await browser.newPage()
 
-let collectedText = ""
+await page.setUserAgent(
+"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+)
 
-$("div,span").each((i,el)=>{
+const searchUrl =
+`https://www.google.com/search?q=${encodeURIComponent(clean+" price per kg kolkata")}`
 
-const text = $(el).text()
+await page.goto(searchUrl,{waitUntil:"networkidle2"})
 
-if(text.includes("₹")){
-collectedText += text + "\n"
+await page.waitForTimeout(3000)
+
+const text = await page.evaluate(()=>{
+
+let collected=""
+
+document.querySelectorAll("div,span").forEach(el=>{
+
+const t = el.innerText
+
+if(t && t.includes("₹")){
+collected += t + "\n"
 }
 
 })
 
-console.log("SCRAPED DATA:\n",collectedText)
+return collected
 
-return collectedText
+})
+
+await browser.close()
+
+console.log("SCRAPED DATA:\n",text)
+
+return text
 
 }catch(err){
 
-console.log("Scrape error:",err.message)
+console.log("Puppeteer scrape error:",err.message)
 
 return ""
 
 }
 
 }
-
 
 
 /* =========================
