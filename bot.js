@@ -24,23 +24,25 @@ const db = admin.firestore();
 
 
 
-// ---------- SMART GOOGLE PRICE SCRAPER ----------
+/* =========================
+   GOOGLE SCRAPER
+========================= */
 
-async function getGooglePrice(product) {
+async function getGooglePrice(product){
 
-try {
+try{
 
 const url = `https://www.google.com/search?q=${encodeURIComponent(product)}+mandi+price+kolkata+per+kg`;
 
-const { data } = await axios.get(url, {
-headers: { "User-Agent": "Mozilla/5.0" }
+const {data} = await axios.get(url,{
+headers:{ "User-Agent":"Mozilla/5.0" }
 });
 
 const $ = cheerio.load(data);
 
 let collectedText = "";
 
-$("div, span").each((i, el) => {
+$("div,span").each((i,el)=>{
 
 const text = $(el).text();
 
@@ -50,8 +52,15 @@ collectedText += text + "\n";
 
 });
 
-// AI analyze
+console.log("SCRAPED TEXT:");
+console.log(collectedText);
+
+
+/* AI ANALYZE */
+
 const aiPrice = await analyzePriceWithAI(collectedText);
+
+console.log("AI PRICE RESULT:", aiPrice);
 
 if(aiPrice){
 return aiPrice;
@@ -59,15 +68,21 @@ return aiPrice;
 
 return null;
 
-} catch (err) {
+}catch(err){
 
-console.log("Google scrape error:", err.message);
+console.log("Google scrape error:",err.message);
+
 return null;
 
 }
 
 }
-// ---------- AI PRICE ANALYZER ----------
+
+
+
+/* =========================
+   AI ANALYZER
+========================= */
 
 async function analyzePriceWithAI(text){
 
@@ -103,166 +118,216 @@ headers:{
 
 )
 
-const result = response.data.choices[0].message.content
+const result = response.data.choices[0].message.content;
 
-return parseInt(result)
+console.log("AI RAW RESPONSE:", result);
+
+return parseInt(result);
 
 }catch(err){
 
-console.log("AI error:",err.message)
+console.log("AI error:",err.message);
 
-return null
+return null;
+
+}
+
+}
+
+
+
+/* =========================
+   PRICE FETCH
+========================= */
+
+async function getPrice(product){
+
+const price = await getGooglePrice(product);
+
+if(price){
+return price;
+}
+
+return 30;
+
+}
+
+
+
+/* =========================
+   UPDATE ALL PRODUCTS
+========================= */
+
+async function updatePrices(){
+
+try{
+
+const snapshot = await db.collection("products").get();
+
+for(const doc of snapshot.docs){
+
+const data = doc.data();
+
+const productName = data.name || doc.id;
+
+const price = await getPrice(productName);
+
+console.log("UPDATING:",productName,"PRICE:",price);
+
+await db.collection("products").doc(doc.id).update({
+price:price,
+updatedAt:new Date()
+});
+
+}
+
+console.log("ALL PRODUCTS UPDATED");
+
+}catch(err){
+
+console.log("Update error:",err.message);
 
 }
 
 }
 
-// ---------- PRICE FETCH ----------
 
-async function getPrice(product) {
 
-  const googlePrice = await getGooglePrice(product);
+/* =========================
+   PRODUCT SEARCH
+========================= */
 
-  if (googlePrice) {
-    return googlePrice;
-  }
+async function findOrCreateProduct(productName){
 
-  return Math.floor(Math.random() * 80) + 10;
+const id = productName.toLowerCase().trim();
+
+const ref = db.collection("products").doc(id);
+
+const doc = await ref.get();
+
+if(!doc.exists){
+
+console.log("Creating new product:",productName);
+
+const price = await getPrice(productName);
+
+await ref.set({
+name:productName,
+price:price,
+createdAt:new Date()
+});
+
+return price;
+
+}else{
+
+return doc.data().price;
+
+}
 
 }
 
 
-// ---------- UPDATE ALL PRODUCTS ----------
 
-async function updatePrices() {
+/* =========================
+   TEST ROUTES
+========================= */
 
-  try {
 
-    const snapshot = await db.collection("products").get();
+/* AI TEST */
+app.get("/ai-test/:name", async (req,res)=>{
 
-    for (const doc of snapshot.docs) {
+const product = req.params.name;
 
-      const data = doc.data();
-      const productName = data.name || doc.id;
+const url = `https://www.google.com/search?q=${encodeURIComponent(product)}+price+per+kg`;
 
-      const price = await getPrice(productName);
+const {data} = await axios.get(url,{
+headers:{ "User-Agent":"Mozilla/5.0" }
+});
 
-      await db.collection("products").doc(doc.id).update({
-        price: price,
-        updatedAt: new Date()
-      });
+const $ = cheerio.load(data);
 
-      console.log(productName + " updated:", price);
+let collectedText="";
 
-    }
+$("div,span").each((i,el)=>{
 
-    console.log("All products updated");
+const text=$(el).text();
 
-  } catch (error) {
-
-    console.error("Update error:", error.message);
-
-  }
-
+if(text.includes("₹")){
+collectedText+=text+"\n";
 }
 
+});
 
-// ---------- AUTO CREATE PRODUCT ----------
+const aiPrice = await analyzePriceWithAI(collectedText);
 
-async function findOrCreateProduct(productName) {
-
-  const id = productName.toLowerCase().trim();
-
-  const ref = db.collection("products").doc(id);
-
-  const doc = await ref.get();
-
-  if (!doc.exists) {
-
-    console.log("Creating new product:", productName);
-
-    const price = await getPrice(productName);
-
-    await ref.set({
-      name: productName,
-      price: price,
-      createdAt: new Date()
-    });
-
-    return price;
-
-  } else {
-
-    return doc.data().price;
-
-  }
-
-}
-
-
-// ---------- ROUTES ----------
-
-// manual update
-app.get("/update", async (req, res) => {
-
-  try {
-
-    await updatePrices();
-    res.send("Prices Updated");
-
-  } catch (err) {
-
-    console.error(err);
-    res.status(500).send("Update Error");
-
-  }
+res.json({
+product:product,
+aiPrice:aiPrice,
+scrapedData:collectedText
+});
 
 });
 
 
-// product search API
-app.get("/product/:name", async (req, res) => {
 
-  try {
+/* NORMAL PRODUCT API */
+app.get("/product/:name", async (req,res)=>{
 
-    const productName = req.params.name;
+try{
 
-    const price = await findOrCreateProduct(productName);
+const productName=req.params.name;
 
-    res.json({
-      product: productName,
-      price: price
-    });
+const price=await findOrCreateProduct(productName);
 
-  } catch (err) {
+res.json({
+product:productName,
+price:price
+});
 
-    console.error("Product error:", err.message);
-    res.status(500).send("Product Error");
+}catch(err){
 
-  }
+res.status(500).send("Product Error");
+
+}
 
 });
 
 
-// ---------- AUTO UPDATE EVERY 6 HOURS ----------
+/* MANUAL UPDATE */
+app.get("/update",async(req,res)=>{
 
-setInterval(() => {
+await updatePrices();
 
-  console.log("Running auto price update...");
-
-  updatePrices();
-
-}, 6 * 60 * 60 * 1000);
-
-
-// ---------- START SERVER ----------
-
-app.listen(PORT, () => {
-
-  console.log(`DailyCart Bot Running on port ${PORT}`);
+res.send("Prices Updated");
 
 });
 
+
+
+/* =========================
+   AUTO UPDATE
+========================= */
+
+setInterval(()=>{
+
+console.log("AUTO UPDATE RUNNING");
+
+updatePrices();
+
+},6*60*60*1000);
+
+
+
+/* =========================
+   START SERVER
+========================= */
+
+app.listen(PORT,()=>{
+
+console.log("DailyCart Bot Running");
+
+});
 
 
 
