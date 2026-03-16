@@ -25,54 +25,61 @@ const db = admin.firestore();
 
 
 /* =========================
+   CLEAN PRODUCT NAME
+========================= */
+
+function cleanProductName(name){
+
+return name
+.toLowerCase()
+.replace(/[^a-z ]/g,"")
+.trim()
+
+}
+
+
+
+/* =========================
    GOOGLE SCRAPER
 ========================= */
 
-async function getGooglePrice(product){
+async function getGoogleData(product){
 
 try{
 
-const url = `https://www.google.com/search?q=${encodeURIComponent(product)}+mandi+price+kolkata+per+kg`;
+const clean = cleanProductName(product)
+
+const url = `https://www.google.com/search?q=${encodeURIComponent(clean)}+price+kolkata+per+kg`
 
 const {data} = await axios.get(url,{
-headers:{ "User-Agent":"Mozilla/5.0" }
-});
+headers:{
+"User-Agent":"Mozilla/5.0"
+}
+})
 
-const $ = cheerio.load(data);
+const $ = cheerio.load(data)
 
-let collectedText = "";
+let collectedText = ""
 
 $("div,span").each((i,el)=>{
 
-const text = $(el).text();
+const text = $(el).text()
 
 if(text.includes("₹")){
-collectedText += text + "\n";
+collectedText += text + "\n"
 }
 
-});
+})
 
-console.log("SCRAPED TEXT:");
-console.log(collectedText);
+console.log("SCRAPED DATA:\n",collectedText)
 
-
-/* AI ANALYZE */
-
-const aiPrice = await analyzePriceWithAI(collectedText);
-
-console.log("AI PRICE RESULT:", aiPrice);
-
-if(aiPrice){
-return aiPrice;
-}
-
-return null;
+return collectedText
 
 }catch(err){
 
-console.log("Google scrape error:",err.message);
+console.log("Scrape error:",err.message)
 
-return null;
+return ""
 
 }
 
@@ -81,12 +88,16 @@ return null;
 
 
 /* =========================
-   AI ANALYZER
+   AI PRICE ANALYZER
 ========================= */
 
 async function analyzePriceWithAI(text){
 
 try{
+
+if(!text || text.length < 5){
+return null
+}
 
 const response = await axios.post(
 "https://api.groq.com/openai/v1/chat/completions",
@@ -100,7 +111,7 @@ content:"You analyze vegetable market prices. Return only a number."
 },
 {
 role:"user",
-content:`Find the realistic vegetable price per kg from this data. Return only number between 10 and 200.
+content:`Find realistic vegetable price per kg between 10 and 200.
 
 DATA:
 ${text}`
@@ -108,27 +119,31 @@ ${text}`
 ]
 
 },
-
 {
 headers:{
 "Authorization":`Bearer ${process.env.GROQ_API_KEY}`,
 "Content-Type":"application/json"
 }
 }
-
 )
 
-const result = response.data.choices[0].message.content;
+const result = response.data.choices[0].message.content
 
-console.log("AI RAW RESPONSE:", result);
+console.log("AI RESPONSE:",result)
 
-return parseInt(result);
+const number = parseInt(result)
+
+if(number && number > 5 && number < 300){
+return number
+}
+
+return null
 
 }catch(err){
 
-console.log("AI error:",err.message);
+console.log("AI error:",err.message)
 
-return null;
+return null
 
 }
 
@@ -137,18 +152,30 @@ return null;
 
 
 /* =========================
-   PRICE FETCH
+   FINAL PRICE SYSTEM
 ========================= */
 
 async function getPrice(product){
 
-const price = await getGooglePrice(product);
+try{
 
-if(price){
-return price;
+const googleData = await getGoogleData(product)
+
+const aiPrice = await analyzePriceWithAI(googleData)
+
+if(aiPrice){
+console.log("FINAL AI PRICE:",aiPrice)
+return aiPrice
 }
 
-return 30;
+return 30
+
+}catch(err){
+
+console.log("Price error:",err.message)
+return 30
+
+}
 
 }
 
@@ -162,30 +189,28 @@ async function updatePrices(){
 
 try{
 
-const snapshot = await db.collection("products").get();
+const snapshot = await db.collection("products").get()
 
 for(const doc of snapshot.docs){
 
-const data = doc.data();
+const productName = doc.data().name || doc.id
 
-const productName = data.name || doc.id;
+const price = await getPrice(productName)
 
-const price = await getPrice(productName);
-
-console.log("UPDATING:",productName,"PRICE:",price);
+console.log("UPDATING:",productName,price)
 
 await db.collection("products").doc(doc.id).update({
 price:price,
 updatedAt:new Date()
-});
+})
 
 }
 
-console.log("ALL PRODUCTS UPDATED");
+console.log("ALL PRODUCTS UPDATED")
 
 }catch(err){
 
-console.log("Update error:",err.message);
+console.log("Update error:",err.message)
 
 }
 
@@ -199,29 +224,36 @@ console.log("Update error:",err.message);
 
 async function findOrCreateProduct(productName){
 
-const id = productName.toLowerCase().trim();
+const id = cleanProductName(productName)
 
-const ref = db.collection("products").doc(id);
+const ref = db.collection("products").doc(id)
 
-const doc = await ref.get();
+const doc = await ref.get()
 
 if(!doc.exists){
 
-console.log("Creating new product:",productName);
+console.log("Creating product:",productName)
 
-const price = await getPrice(productName);
+const price = await getPrice(productName)
 
 await ref.set({
 name:productName,
 price:price,
 createdAt:new Date()
-});
+})
 
-return price;
+return price
 
 }else{
 
-return doc.data().price;
+const newPrice = await getPrice(productName)
+
+await ref.update({
+price:newPrice,
+updatedAt:new Date()
+})
+
+return newPrice
 
 }
 
@@ -230,78 +262,65 @@ return doc.data().price;
 
 
 /* =========================
-   TEST ROUTES
+   TEST ROUTE
 ========================= */
 
-
-/* AI TEST */
 app.get("/ai-test/:name", async (req,res)=>{
 
-const product = req.params.name;
+const product = req.params.name
 
-const url = `https://www.google.com/search?q=${encodeURIComponent(product)}+price+per+kg`;
+const googleData = await getGoogleData(product)
 
-const {data} = await axios.get(url,{
-headers:{ "User-Agent":"Mozilla/5.0" }
-});
-
-const $ = cheerio.load(data);
-
-let collectedText="";
-
-$("div,span").each((i,el)=>{
-
-const text=$(el).text();
-
-if(text.includes("₹")){
-collectedText+=text+"\n";
-}
-
-});
-
-const aiPrice = await analyzePriceWithAI(collectedText);
+const aiPrice = await analyzePriceWithAI(googleData)
 
 res.json({
 product:product,
-aiPrice:aiPrice,
-scrapedData:collectedText
-});
+scrapedData:googleData,
+aiPrice:aiPrice
+})
 
-});
+})
 
 
 
-/* NORMAL PRODUCT API */
+/* =========================
+   PRODUCT API
+========================= */
+
 app.get("/product/:name", async (req,res)=>{
 
 try{
 
-const productName=req.params.name;
+const productName = req.params.name
 
-const price=await findOrCreateProduct(productName);
+const price = await findOrCreateProduct(productName)
 
 res.json({
 product:productName,
 price:price
-});
+})
 
 }catch(err){
 
-res.status(500).send("Product Error");
+res.status(500).send("Product Error")
 
 }
 
-});
+})
 
 
-/* MANUAL UPDATE */
-app.get("/update",async(req,res)=>{
 
-await updatePrices();
+/* =========================
+   MANUAL UPDATE
+========================= */
 
-res.send("Prices Updated");
+app.get("/update", async(req,res)=>{
 
-});
+await updatePrices()
+
+res.send("Prices Updated")
+
+})
 
 
 
@@ -311,11 +330,11 @@ res.send("Prices Updated");
 
 setInterval(()=>{
 
-console.log("AUTO UPDATE RUNNING");
+console.log("AUTO UPDATE RUNNING")
 
-updatePrices();
+updatePrices()
 
-},6*60*60*1000);
+},6*60*60*1000)
 
 
 
@@ -325,9 +344,8 @@ updatePrices();
 
 app.listen(PORT,()=>{
 
-console.log("DailyCart Bot Running");
+console.log("DailyCart Bot Running")
 
-});
-
+})
 
 
